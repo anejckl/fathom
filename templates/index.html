@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fathom</title>
+<style>
+@font-face{font-family:'Inter';src:url('/static/fonts/inter-400.woff2') format('woff2');font-weight:400;font-display:swap}
+@font-face{font-family:'Inter';src:url('/static/fonts/inter-500.woff2') format('woff2');font-weight:500;font-display:swap}
+@font-face{font-family:'Inter';src:url('/static/fonts/inter-600.woff2') format('woff2');font-weight:600;font-display:swap}
+@font-face{font-family:'JetBrains Mono';src:url('/static/fonts/jbmono-400.woff2') format('woff2');font-weight:400;font-display:swap}
+@font-face{font-family:'JetBrains Mono';src:url('/static/fonts/jbmono-500.woff2') format('woff2');font-weight:500;font-display:swap}
+:root{
+  --base:#1e1e2e;--mantle:#181825;--crust:#11111b;
+  --surface0:#313244;--surface1:#45475a;--surface2:#585b70;
+  --text:#cdd6f4;--subtext0:#a6adc8;--subtext1:#bac2de;
+  --mauve:#cba6f7;--red:#f38ba8;--yellow:#f9e2af;
+  --green:#a6e3a1;--teal:#94e2d5;
+  --font-ui:'Inter',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','Fira Code',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--base);color:var(--text);font-family:var(--font-ui);font-size:14px;line-height:1.5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* Header */
+header{background:var(--mantle);border-bottom:1px solid var(--surface0);padding:10px 16px;flex-shrink:0;z-index:100}
+.header-row{display:flex;align-items:center;gap:12px}
+.logo{font-size:13.5px;font-weight:600;color:var(--mauve);white-space:nowrap;text-decoration:none;letter-spacing:-0.01em;flex-shrink:0}
+.logo-sub{color:var(--subtext0);font-weight:400;margin-left:5px;font-size:12px}
+#search{flex:1;background:var(--surface0);border:1px solid var(--surface1);border-radius:4px;padding:6px 12px;color:var(--text);font-size:13px;font-family:var(--font-ui);outline:none;min-width:0}
+#search:focus{border-color:var(--mauve)}
+#search::placeholder{color:var(--subtext0)}
+.header-actions{display:flex;align-items:center;gap:14px;flex-shrink:0}
+.action-link{background:none;border:none;color:var(--subtext0);font-size:12px;font-family:var(--font-ui);cursor:pointer;padding:0;transition:color .12s;text-underline-offset:3px;text-decoration:underline;text-decoration-color:var(--surface1)}
+.action-link:hover{color:var(--text);text-decoration-color:var(--subtext0)}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--surface2);transition:background .3s;cursor:pointer;flex-shrink:0}
+.live-dot.connected{background:var(--green)}
+.live-dot.paused{background:var(--yellow)}
+
+/* Layout */
+.layout{display:flex;flex:1;overflow:hidden}
+
+/* Sidebar */
+aside{width:196px;flex-shrink:0;background:var(--mantle);border-right:1px solid var(--surface0);overflow-y:auto;padding:8px 0}
+.sidebar-all{display:block;width:100%;background:none;border:none;padding:6px 14px;cursor:pointer;color:var(--subtext1);font-size:12.5px;font-family:var(--font-ui);text-align:left;transition:color .1s;margin-bottom:4px}
+.sidebar-all:hover{color:var(--text)}
+.sidebar-all.active{color:var(--mauve)}
+.fleet-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--surface2);padding:10px 14px 3px}
+.container-btn{display:flex;align-items:baseline;gap:6px;width:100%;background:none;border:none;padding:4px 14px;cursor:pointer;color:var(--subtext1);font-size:12.5px;font-family:var(--font-ui);text-align:left;transition:color .1s;min-width:0}
+.container-btn:hover{color:var(--text)}
+.container-btn.active{color:var(--mauve)}
+.container-btn.stopped{opacity:0.4}
+.container-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.err-count{color:var(--red);font-size:11px;flex-shrink:0;opacity:.75}
+
+/* Main */
+main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.toolbar{display:flex;align-items:center;gap:5px;padding:7px 16px;border-bottom:1px solid var(--surface0);flex-shrink:0;flex-wrap:wrap}
+.stats-text{font-size:11.5px;color:var(--subtext0);margin-right:auto}
+.tr-sep{color:var(--surface1);font-size:11px;user-select:none;margin:0 1px}
+.tr-btn{background:none;border:none;color:var(--subtext0);font-size:12px;font-family:var(--font-ui);cursor:pointer;padding:2px 2px;transition:color .12s;line-height:1}
+.tr-btn:hover{color:var(--text)}
+.tr-btn.active{color:var(--mauve)}
+.lv-sep{width:1px;height:12px;background:var(--surface0);margin:0 6px;flex-shrink:0}
+.lv-btn{background:none;border:none;color:var(--subtext0);font-size:12px;font-family:var(--font-ui);cursor:pointer;padding:2px 2px;transition:color .12s;line-height:1}
+.lv-btn:hover{color:var(--text)}
+.lv-btn.active{color:var(--mauve)}
+
+/* Banner */
+#new-lines-banner{display:none;position:absolute;top:41px;left:50%;transform:translateX(-50%);background:var(--surface0);border:1px solid var(--surface1);border-radius:20px;padding:4px 14px;font-size:11.5px;color:var(--mauve);cursor:pointer;z-index:10;white-space:nowrap}
+#new-lines-banner:hover{background:var(--surface1)}
+
+#timeline{flex:1;overflow-y:auto;padding:8px 16px 20px}
+
+/* Entries */
+.day-sep{font-size:11px;color:var(--subtext0);display:flex;align-items:center;gap:8px;padding:14px 0 6px;opacity:.5}
+.day-sep::after{content:'';flex:1;height:1px;background:var(--surface0)}
+.entry{padding:5px 8px 5px 10px;margin-bottom:2px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;cursor:pointer;border-left:2px solid var(--surface0);border-radius:0 2px 2px 0;transition:background .1s}
+.entry:hover{background:rgba(49,50,68,.45)}
+.entry.expanded{background:var(--surface0);border-radius:0 4px 4px 0}
+.level-warning{border-left-color:rgba(249,226,175,.5)}
+.level-error{border-left-color:var(--red)}
+.level-event{border-left-color:rgba(203,166,247,.4)}
+.entry-body{min-width:0}
+.entry-line{font-family:var(--font-mono);font-size:12px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--subtext1)}
+.level-error   .entry-line{color:var(--red)}
+.level-warning .entry-line{color:var(--yellow)}
+.entry-meta{font-size:11px;color:var(--surface2);margin-top:2px;display:flex;gap:7px;align-items:center}
+.meta-container{color:var(--subtext0)}
+.meta-project{}
+.meta-json{color:var(--teal);font-size:10.5px}
+.entry-time{font-size:11px;color:var(--surface2);white-space:nowrap;padding-top:2px;font-variant-numeric:tabular-nums;font-family:var(--font-mono)}
+.entry-detail{display:none;grid-column:1/-1;margin-top:6px;border-top:1px solid var(--surface1);padding-top:6px}
+.entry.expanded .entry-detail{display:block}
+.detail-actions{display:flex;gap:12px;margin-bottom:7px}
+.text-link{background:none;border:none;color:var(--subtext0);font-size:11px;font-family:var(--font-ui);cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--surface1);transition:color .12s}
+.text-link:hover{color:var(--text);text-decoration-color:var(--subtext0)}
+.text-link.copied{color:var(--green)}
+.raw-block{background:var(--crust);border-radius:3px;padding:8px 10px;font-family:var(--font-mono);font-size:11.5px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:180px;overflow-y:auto;color:var(--subtext1);line-height:1.5}
+.context-block{margin-top:6px;background:var(--crust);border-radius:3px;padding:5px 8px}
+.ctx-line{font-size:11px;font-family:var(--font-mono);padding:1px 0;color:var(--subtext1);line-height:1.4}
+.ctx-line.ctx-match{color:var(--text)}
+
+/* Panels */
+.panel{display:none;position:fixed;inset:0;background:rgba(17,17,27,.8);z-index:200;align-items:center;justify-content:center}
+.panel.open{display:flex}
+.panel-box{background:var(--mantle);border:1px solid var(--surface1);border-radius:6px;width:min(520px,94vw);max-height:80vh;display:flex;flex-direction:column}
+.panel-head{padding:13px 16px;border-bottom:1px solid var(--surface0);display:flex;align-items:center;justify-content:space-between}
+.panel-head h2{font-size:13px;font-weight:600;letter-spacing:-0.01em}
+.panel-close{background:none;border:none;color:var(--subtext0);font-size:15px;cursor:pointer;padding:2px 4px;line-height:1;transition:color .12s}
+.panel-close:hover{color:var(--text)}
+.panel-body{padding:14px 16px;overflow-y:auto;flex:1}
+.rule-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--surface0)}
+.rule-row:last-child{border-bottom:none}
+.rule-info{flex:1}
+.rule-label{font-family:var(--font-mono);font-size:12px;color:var(--text)}
+.rule-sub{font-size:11px;color:var(--subtext0);margin-top:2px}
+.del-btn{background:none;border:1px solid rgba(243,139,168,.2);border-radius:3px;color:var(--red);padding:2px 8px;font-size:11px;font-family:var(--font-ui);cursor:pointer;transition:border-color .12s}
+.del-btn:hover{border-color:var(--red)}
+.add-form{display:flex;flex-direction:column;gap:7px;margin-top:12px;padding-top:12px;border-top:1px solid var(--surface0)}
+.add-form input,.add-form select{background:var(--surface0);border:1px solid var(--surface1);border-radius:4px;padding:6px 10px;color:var(--text);font-size:13px;font-family:var(--font-ui);outline:none}
+.add-form input:focus,.add-form select:focus{border-color:var(--mauve)}
+.add-form .row{display:flex;gap:7px}
+.add-form .row input,.add-form .row select{flex:1}
+.save-btn{background:var(--mauve);color:var(--crust);border:none;border-radius:4px;padding:6px 14px;font-size:12.5px;font-family:var(--font-ui);font-weight:600;cursor:pointer;align-self:flex-end}
+.save-btn:hover{opacity:.9}
+
+.empty{text-align:center;padding:48px 16px;color:var(--subtext0)}
+.empty h3{color:var(--subtext1);margin-bottom:6px;font-size:14px;font-weight:500}
+.empty p{font-size:12.5px}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--crust)}
+::-webkit-scrollbar-thumb{background:var(--surface1);border-radius:2px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-row">
+    <a class="logo" href="/">Fathom<span class="logo-sub">/ docker logs</span></a>
+    <input id="search" type="text" placeholder="Search or ask: errors last night, what restarted today">
+    <div class="header-actions">
+      <button class="action-link" onclick="openPanel('mute-panel')">Mute</button>
+      <button class="action-link" onclick="openPanel('flares-panel')">Flares</button>
+      <div class="live-dot" id="live-dot" title="click to pause / resume" onclick="togglePause()"></div>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside id="sidebar">
+    <button class="sidebar-all active" id="btn-all" onclick="selectContainer(null)">All containers</button>
+    <div id="fleet-list"></div>
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <span class="stats-text" id="stats-text">Loading...</span>
+      <button class="tr-btn" onclick="setRange(1)">1h</button><span class="tr-sep">/</span>
+      <button class="tr-btn" onclick="setRange(6)">6h</button><span class="tr-sep">/</span>
+      <button class="tr-btn" onclick="setRange(24)">24h</button><span class="tr-sep">/</span>
+      <button class="tr-btn" onclick="setRange(168)">7d</button><span class="tr-sep">/</span>
+      <button class="tr-btn active" id="tr-all" onclick="setRange(0)">all</button>
+      <div class="lv-sep"></div>
+      <button class="lv-btn" id="btn-all-levels" onclick="setLevel(null)" style="display:none">all</button>
+      <button class="lv-btn" id="btn-error" onclick="setLevel('error')">errors</button>
+      <span class="tr-sep">/</span>
+      <button class="lv-btn" id="btn-warn" onclick="setLevel('warning')">warnings</button>
+    </div>
+    <div id="new-lines-banner" onclick="flushBuffer()"></div>
+    <div id="timeline"><div class="empty"><h3>Loading logs...</h3></div></div>
+  </main>
+</div>
+
+<!-- Mute panel -->
+<div class="panel" id="mute-panel">
+  <div class="panel-box">
+    <div class="panel-head">
+      <h2>Mute — Noise Filters</h2>
+      <button class="panel-close" onclick="closePanel('mute-panel')">&#x2715;</button>
+    </div>
+    <div class="panel-body">
+      <div id="filter-list"></div>
+      <div class="add-form">
+        <div class="row">
+          <input id="f-container" placeholder="Container (blank = all)">
+          <input id="f-pattern" placeholder="Pattern to suppress">
+        </div>
+        <div class="row">
+          <select id="f-regex"><option value="0">Substring match</option><option value="1">Regex match</option></select>
+          <button class="save-btn" onclick="addFilter()">Add Filter</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Flares panel -->
+<div class="panel" id="flares-panel">
+  <div class="panel-box">
+    <div class="panel-head">
+      <h2>Flares — Webhook Alerts</h2>
+      <button class="panel-close" onclick="closePanel('flares-panel')">&#x2715;</button>
+    </div>
+    <div class="panel-body">
+      <div id="alert-list"></div>
+      <div class="add-form">
+        <div class="row">
+          <input id="a-container" placeholder="Container name">
+          <input id="a-pattern" placeholder="Error pattern (regex)">
+        </div>
+        <div class="row">
+          <input id="a-threshold" type="number" value="5" placeholder="Threshold">
+          <input id="a-window" type="number" value="5" placeholder="Window (min)">
+        </div>
+        <div class="row">
+          <select id="a-type"><option value="ntfy">ntfy</option><option value="discord">Discord</option><option value="slack">Slack</option></select>
+          <input id="a-url" placeholder="Webhook URL">
+        </div>
+        <button class="save-btn" onclick="addAlert()">Add Flare Rule</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentContainer = null, currentLevel = null, currentSearch = '', currentSince = 0;
+let searchTimer, refreshTimer;
+let isPaused = false, buffer = [], containerStatuses = {};
+
+// Auto-scroll
+const tl = () => document.getElementById('timeline');
+let userScrolledDown = false;
+
+document.addEventListener('DOMContentLoaded', () => {
+  tl().addEventListener('scroll', () => {
+    userScrolledDown = tl().scrollTop > 80;
+  });
+});
+
+function scrollToTop() {
+  if (!userScrolledDown) tl().scrollTop = 0;
+}
+
+// Pause / resume (controlled by live dot click)
+function togglePause() {
+  isPaused = !isPaused;
+  const dot = document.getElementById('live-dot');
+  if (isPaused) {
+    dot.classList.add('paused');
+    dot.classList.remove('connected');
+    dot.title = 'paused — click to resume';
+  } else {
+    dot.classList.remove('paused');
+    dot.classList.add('connected');
+    dot.title = 'click to pause';
+    flushBuffer();
+  }
+}
+
+function flushBuffer() {
+  if (!buffer.length) { hideBanner(); return; }
+  const entries = buffer.splice(0);
+  entries.forEach(ev => appendLiveEntry(ev));
+  hideBanner();
+  isPaused = false;
+  const dot = document.getElementById('live-dot');
+  dot.classList.remove('paused');
+  dot.classList.add('connected');
+  dot.title = 'click to pause';
+}
+
+function showBanner(count) {
+  const b = document.getElementById('new-lines-banner');
+  b.style.display = 'block';
+  b.textContent = `${count} new line${count !== 1 ? 's' : ''} — click to show`;
+}
+function hideBanner() {
+  document.getElementById('new-lines-banner').style.display = 'none';
+}
+
+// Time range
+function setRange(hours) {
+  currentSince = hours ? Math.floor(Date.now() / 1000) - hours * 3600 : 0;
+  document.querySelectorAll('.tr-btn').forEach(b => b.classList.remove('active'));
+  if (!hours) document.getElementById('tr-all').classList.add('active');
+  else {
+    const labels = {1:'1h',6:'6h',24:'24h',168:'7d'};
+    document.querySelectorAll('.tr-btn').forEach(b => {
+      if (b.textContent === (labels[hours] || '')) b.classList.add('active');
+    });
+  }
+  loadLogs();
+}
+
+// Helpers
+function dayLabel(ts) {
+  const d = new Date(ts * 1000), today = new Date();
+  today.setHours(0,0,0,0);
+  const yesterday = new Date(today); yesterday.setDate(today.getDate()-1);
+  if (d >= today) return 'Today';
+  if (d >= yesterday) return 'Yesterday';
+  return d.toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'short'});
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderEntry(ev) {
+  const t = new Date(ev.timestamp*1000).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  const displayLine = ev.parsed_msg || ev.line || '';
+  const isJSON = ev.parsed_msg && ev.parsed_msg !== ev.line;
+  const level = ev.level || 'info';
+  const safeContainer = esc(ev.container).replace(/'/g, "\\'");
+  return `
+<div class="entry level-${level}" data-id="${ev.id}" data-container="${esc(ev.container)}" data-line="${esc(ev.line)}">
+  <div class="entry-body">
+    <div class="entry-line">${esc(displayLine)}</div>
+    <div class="entry-meta">
+      <span class="meta-container">${esc(ev.container)}</span>
+      ${ev.project && ev.project !== ev.container ? `<span class="meta-project">${esc(ev.project)}</span>` : ''}
+      ${isJSON ? '<span class="meta-json">json</span>' : ''}
+    </div>
+    <div class="entry-detail">
+      <div class="detail-actions">
+        <button class="text-link" onclick="copyLine(event, this)">copy</button>
+        <button class="text-link" onclick="loadContext(event,${ev.id},'${safeContainer}')">context</button>
+      </div>
+      <div class="raw-block">${esc(ev.line)}</div>
+      <div class="context-block" id="ctx-${ev.id}" style="display:none"></div>
+    </div>
+  </div>
+  <div class="entry-time">${t}</div>
+</div>`;
+}
+
+// Copy
+function copyLine(e, btn) {
+  e.stopPropagation();
+  const entry = btn.closest('.entry');
+  const line = entry?.dataset.line || '';
+  navigator.clipboard.writeText(line).then(() => {
+    btn.textContent = 'copied';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+// Load logs
+async function loadLogs() {
+  const timeline = tl();
+  try {
+    let url;
+    if (currentSearch) {
+      url = `/api/search?q=${encodeURIComponent(currentSearch)}&limit=300`;
+    } else {
+      const params = new URLSearchParams({limit: 300});
+      if (currentContainer) params.set('container', currentContainer);
+      if (currentLevel)     params.set('level', currentLevel);
+      if (currentSince)     params.set('since', currentSince);
+      url = `/api/logs?${params}`;
+    }
+    const logs = await fetch(url).then(r => r.json());
+    if (!logs.length) {
+      timeline.innerHTML = '<div class="empty"><h3>No logs found</h3><p>Try a different filter or wait for new activity</p></div>';
+      return;
+    }
+    let html = '', lastDay = '';
+    for (const ev of logs) {
+      const day = dayLabel(ev.timestamp);
+      if (day !== lastDay) { html += `<div class="day-sep">${day}</div>`; lastDay = day; }
+      html += renderEntry(ev);
+    }
+    timeline.innerHTML = html;
+    bindEntries(timeline);
+  } catch(e) {
+    timeline.innerHTML = `<div class="empty"><h3>Error loading logs</h3><p>${e.message}</p></div>`;
+  }
+}
+
+function bindEntries(container) {
+  container.querySelectorAll('.entry').forEach(el =>
+    el.addEventListener('click', e => {
+      if (e.target.closest('.text-link') || e.target.closest('.context-block')) return;
+      el.classList.toggle('expanded');
+    })
+  );
+}
+
+// Counts + sidebar
+async function loadCounts() {
+  try {
+    const data = await fetch('/api/counts').then(r => r.json());
+    const counts = data.counts || {}, errors = data.errors || {};
+    const total = Object.values(counts).reduce((a,b) => a+b, 0);
+    document.getElementById('stats-text').textContent = `${total.toLocaleString()} lines collected`;
+    return {counts, errors};
+  } catch(e) { return {counts:{}, errors:{}}; }
+}
+
+async function loadSidebar() {
+  try {
+    const [projects, {counts, errors}, statuses] = await Promise.all([
+      fetch('/api/projects').then(r => r.json()),
+      loadCounts(),
+      fetch('/api/containers/status').then(r => r.json()).catch(() => ({}))
+    ]);
+    containerStatuses = statuses;
+    let html = '';
+    for (const [fleet, containers] of Object.entries(projects)) {
+      html += `<div class="fleet-label">${fleet}</div>`;
+      for (const name of containers) {
+        const e = errors[name] || 0;
+        const active = currentContainer === name ? 'active' : '';
+        const status = statuses[name] || 'unknown';
+        const isRunning = status === 'running';
+        html += `<button class="container-btn ${active} ${isRunning ? '' : 'stopped'}"
+          onclick="selectContainer('${name.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">
+          <span class="container-name">${esc(name)}</span>
+          ${e ? `<span class="err-count">${e}</span>` : ''}
+        </button>`;
+      }
+    }
+    document.getElementById('fleet-list').innerHTML = html;
+  } catch(e) {}
+}
+
+function selectContainer(name) {
+  currentContainer = name;
+  currentSearch = '';
+  document.getElementById('search').value = '';
+  document.querySelectorAll('.container-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-all').classList.toggle('active', !name);
+  if (name) {
+    document.querySelectorAll('.container-btn').forEach(b => {
+      if (b.querySelector('.container-name')?.textContent === name) b.classList.add('active');
+    });
+  }
+  loadLogs();
+}
+
+function setLevel(level) {
+  currentLevel = level;
+  document.getElementById('btn-all-levels').style.display = level ? '' : 'none';
+  document.getElementById('btn-error').classList.toggle('active', level === 'error');
+  document.getElementById('btn-warn').classList.toggle('active', level === 'warning');
+  loadLogs();
+}
+
+document.getElementById('search').addEventListener('input', e => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    currentSearch = e.target.value.trim();
+    loadLogs();
+  }, 400);
+});
+
+// Context (Scope)
+async function loadContext(e, id, container) {
+  e.stopPropagation();
+  const box = document.getElementById(`ctx-${id}`);
+  if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.innerHTML = '<div style="color:var(--subtext0);font-size:11px;padding:4px">Loading context...</div>';
+  try {
+    const rows = await fetch(`/api/context/${id}?container=${encodeURIComponent(container)}`).then(r => r.json());
+    box.innerHTML = rows.map(r => `<div class="ctx-line ${r.id==id?'ctx-match':''}">${esc(r.line||'')}</div>`).join('');
+  } catch(err) {
+    box.innerHTML = `<div style="color:var(--red);font-size:11px">${err.message}</div>`;
+  }
+}
+
+// Tide (SSE live stream)
+function appendLiveEntry(ev) {
+  const timeline = tl();
+  const empty = timeline.querySelector('.empty');
+  if (empty) timeline.innerHTML = '';
+
+  const today = dayLabel(Math.floor(Date.now()/1000));
+  const firstSep = timeline.querySelector('.day-sep');
+  if (!firstSep || firstSep.textContent !== today) {
+    const d = document.createElement('div');
+    d.className = 'day-sep'; d.textContent = today;
+    timeline.prepend(d);
+  }
+
+  const div = document.createElement('div');
+  div.innerHTML = renderEntry(ev).trim();
+  const entry = div.firstElementChild;
+  entry.addEventListener('click', e2 => {
+    if (e2.target.closest('.text-link') || e2.target.closest('.context-block')) return;
+    entry.classList.toggle('expanded');
+  });
+
+  const sep = timeline.querySelector('.day-sep');
+  if (sep && sep.nextSibling) timeline.insertBefore(entry, sep.nextSibling);
+  else timeline.prepend(entry);
+
+  scrollToTop();
+}
+
+function startTide() {
+  const dot = document.getElementById('live-dot');
+  const es = new EventSource('/api/stream');
+  es.onopen = () => { if (!isPaused) dot.classList.add('connected'); dot.title = 'click to pause'; };
+  es.onerror = () => {
+    dot.classList.remove('connected');
+    dot.title = 'reconnecting...';
+    setTimeout(startTide, 5000);
+    es.close();
+  };
+  es.onmessage = e => {
+    try {
+      const ev = JSON.parse(e.data);
+      if (currentSearch) return;
+      if (currentContainer && ev.container !== currentContainer) return;
+      if (currentLevel && ev.level !== currentLevel) return;
+      if (currentSince && ev.timestamp < currentSince) return;
+
+      if (isPaused) {
+        buffer.push(ev);
+        showBanner(buffer.length);
+        return;
+      }
+      appendLiveEntry(ev);
+    } catch(err) {}
+  };
+}
+
+// Panels
+async function loadFilters() {
+  const list = document.getElementById('filter-list');
+  try {
+    const filters = await fetch('/api/filters').then(r => r.json());
+    if (!filters.length) {
+      list.innerHTML = '<div class="empty" style="padding:12px 0"><p>No mute rules yet. Add patterns below to suppress noisy lines.</p></div>';
+      return;
+    }
+    list.innerHTML = filters.map(f => `
+      <div class="rule-row">
+        <div class="rule-info">
+          <div class="rule-label">${esc(f.pattern)}</div>
+          <div class="rule-sub">${f.container ? `container: ${esc(f.container)}` : 'all containers'} &middot; ${f.is_regex ? 'regex' : 'substring'}</div>
+        </div>
+        <button class="del-btn" onclick="deleteFilter(${f.id})">Remove</button>
+      </div>`).join('');
+  } catch(e) {}
+}
+async function addFilter() {
+  const container = document.getElementById('f-container').value.trim();
+  const pattern = document.getElementById('f-pattern').value.trim();
+  if (!pattern) return;
+  await fetch('/api/filters', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({container: container||null, pattern, is_regex: document.getElementById('f-regex').value==='1'})});
+  document.getElementById('f-pattern').value = '';
+  loadFilters();
+}
+async function deleteFilter(id) {
+  await fetch(`/api/filters/${id}`, {method:'DELETE'});
+  loadFilters();
+}
+
+async function loadAlerts() {
+  const list = document.getElementById('alert-list');
+  try {
+    const rules = await fetch('/api/alerts').then(r => r.json());
+    if (!rules.length) {
+      list.innerHTML = '<div class="empty" style="padding:12px 0"><p>No flare rules yet. Add a rule to get notified when errors spike.</p></div>';
+      return;
+    }
+    list.innerHTML = rules.map(r => `
+      <div class="rule-row">
+        <div class="rule-info">
+          <div class="rule-label">${esc(r.container)} &middot; ${esc(r.pattern)}</div>
+          <div class="rule-sub">${r.threshold} errors / ${r.window_minutes}min &rarr; ${esc(r.webhook_type)}</div>
+        </div>
+        <button class="del-btn" onclick="deleteAlert(${r.id})">Remove</button>
+      </div>`).join('');
+  } catch(e) {}
+}
+async function addAlert() {
+  const body = {
+    container: document.getElementById('a-container').value.trim(),
+    pattern:   document.getElementById('a-pattern').value.trim(),
+    threshold: parseInt(document.getElementById('a-threshold').value) || 5,
+    window_minutes: parseInt(document.getElementById('a-window').value) || 5,
+    webhook_url:  document.getElementById('a-url').value.trim(),
+    webhook_type: document.getElementById('a-type').value,
+  };
+  if (!body.container || !body.pattern || !body.webhook_url) return;
+  await fetch('/api/alerts', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  document.getElementById('a-url').value = '';
+  loadAlerts();
+}
+async function deleteAlert(id) {
+  await fetch(`/api/alerts/${id}`, {method:'DELETE'});
+  loadAlerts();
+}
+
+function openPanel(id) {
+  document.getElementById(id).classList.add('open');
+  if (id === 'mute-panel') loadFilters();
+  if (id === 'flares-panel') loadAlerts();
+}
+function closePanel(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.panel').forEach(p =>
+  p.addEventListener('click', e => { if (e.target === p) p.classList.remove('open'); })
+);
+
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => { loadSidebar(); scheduleRefresh(); }, 30000);
+}
+
+loadLogs();
+loadSidebar();
+startTide();
+scheduleRefresh();
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+services:
+  fathom:
+    image: ghcr.io/anejckl/fathom:latest
+    container_name: fathom
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_URL=http://ollama:11434   # remove if you don't have Ollama
+      - OLLAMA_MODEL=llama3.2:3b
+      - RETENTION_DAYS=30
+      - RATE_LIMIT=20
+      - TZ=Europe/London
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - fathom-data:/data
+
+volumes:
+  fathom-data:
