@@ -10,13 +10,49 @@ DEFAULT_FILTERS = [
 
 @contextmanager
 def conn():
-    c = sqlite3.connect(DB_PATH)
+    c = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=8000")
+    c.execute("PRAGMA synchronous=NORMAL")
     try:
         yield c
         c.commit()
     finally:
         c.close()
+
+def _migrate_filters_unique(c):
+    # Add a named unique index on (coalesce(container,''), pattern) if not present.
+    # UNIQUE(container,pattern) doesn't work because SQLite treats each NULL as distinct.
+    existing = c.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_filters_uniq'"
+    ).fetchone()
+    if existing:
+        return
+    # Deduplicate existing rows first (keep lowest id per container+pattern)
+    c.execute("""
+        DELETE FROM filters WHERE id NOT IN (
+            SELECT MIN(id) FROM filters GROUP BY COALESCE(container,''), pattern
+        )
+    """)
+    # Create expression index so future inserts deduplicate correctly
+    c.execute(
+        "CREATE UNIQUE INDEX idx_filters_uniq ON filters(COALESCE(container,''), pattern)"
+    )
+
+def _migrate_fts_porter(c):
+    """Rebuild FTS5 index with porter stemmer if not already using it."""
+    try:
+        row = c.execute("SELECT v FROM logs_fts_config WHERE k='tokenize'").fetchone()
+        if row and 'porter' in (row[0] or ''):
+            return  # already using porter
+    except Exception:
+        pass
+    # Rebuild with porter tokenizer
+    c.execute("DROP TABLE IF EXISTS logs_fts")
+    c.execute("CREATE VIRTUAL TABLE logs_fts USING fts5(line, container, parsed_msg, content=logs, content_rowid=id, tokenize='porter unicode61')")
+    c.execute("INSERT INTO logs_fts(rowid, line, container, parsed_msg) SELECT id, coalesce(line,''), coalesce(container,''), coalesce(parsed_msg,'') FROM logs")
+
 
 def init_db():
     with conn() as c:
@@ -36,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_logs_ts        ON logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_container ON logs(container);
 CREATE INDEX IF NOT EXISTS idx_logs_level     ON logs(level);
 CREATE VIRTUAL TABLE IF NOT EXISTS logs_fts
-    USING fts5(line, container, parsed_msg, content=logs, content_rowid=id);
+    USING fts5(line, container, parsed_msg, content=logs, content_rowid=id, tokenize='porter unicode61');
 
 CREATE TABLE IF NOT EXISTS filters (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,6 +95,8 @@ CREATE TABLE IF NOT EXISTS alert_rules (
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """)
+        _migrate_fts_porter(c)
+        _migrate_filters_unique(c)
         for p in DEFAULT_FILTERS:
             c.execute("INSERT OR IGNORE INTO filters(container,pattern) VALUES(NULL,?)", (p,))
 
@@ -86,15 +124,33 @@ def get_logs(container=None, level=None, project=None, since=None, limit=300, of
         ).fetchall()
     return [dict(r) for r in rows]
 
-def fts_search(q, limit=200):
+def get_distinct_containers():
     with conn() as c:
-        rows = c.execute(
-            """SELECT l.* FROM logs_fts f
-               JOIN logs l ON l.id = f.rowid
-               WHERE logs_fts MATCH ?
-               ORDER BY l.timestamp DESC LIMIT ?""",
-            (q, limit)
-        ).fetchall()
+        rows = c.execute("SELECT DISTINCT container FROM logs").fetchall()
+    return [r[0] for r in rows if r[0]]
+
+def fts_search(q, limit=200, since=None, level=None, container=None):
+    # Enable prefix matching for simple queries (no FTS5 operators present)
+    fts_q = q
+    if q and not any(ch in q for ch in ('"', '*', ':', '(')) and q.upper() not in ('AND', 'OR', 'NOT'):
+        fts_q = ' '.join(w + '*' for w in q.split() if w)
+    with conn() as c:
+        sql = """SELECT l.* FROM logs_fts f
+                 JOIN logs l ON l.id = f.rowid
+                 WHERE logs_fts MATCH ?"""
+        params = [fts_q]
+        if since:
+            sql += " AND l.timestamp >= ?"
+            params.append(since)
+        if level:
+            sql += " AND l.level = ?"
+            params.append(level)
+        if container:
+            sql += " AND l.container = ?"
+            params.append(container)
+        sql += " ORDER BY l.timestamp DESC LIMIT ?"
+        params.append(limit)
+        rows = c.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 def get_context(log_id, container, window=20):

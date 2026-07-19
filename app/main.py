@@ -50,6 +50,79 @@ async def _sweep_loop():
         db.sweep_old_logs(RETENTION_DAYS)
         log.info("Sweep: removed logs older than %d days", RETENTION_DAYS)
 
+
+# Quick NL parser — handles time/level/keyword extraction without Ollama
+import re as _re
+_NL_STOPWORDS = frozenset({
+    'what', 'which', 'when', 'how', 'did', 'does', 'show', 'me', 'find',
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'have', 'has', 'and',
+    'or', 'in', 'on', 'at', 'for', 'to', 'do', 'get', 'any',
+})
+_NL_TIME_WORDS = frozenset({
+    'today', 'tonight', 'yesterday', 'hour', 'hours', 'night',
+    'week', 'day', 'days', 'last', 'ago', 'recent', 'now',
+})
+_NL_TIME_PHRASES = [
+    (_re.compile(r'last\s+(\d+)\s+minutes?'), lambda m: int(m.group(1)) / 60),
+    (_re.compile(r'last\s+minute'),              lambda m: 1 / 60),
+    (_re.compile(r'last\s+(\d+)\s+hours?'),   lambda m: int(m.group(1))),
+    (_re.compile(r'last\s+hour'),                lambda m: 1),
+    (_re.compile(r'last\s+night'),               lambda m: 16),
+    (_re.compile(r'last\s+week'),                lambda m: 168),
+    (_re.compile(r'last\s+(\d+)\s+days?'),    lambda m: int(m.group(1)) * 24),
+    (_re.compile(r'\btoday\b'),                 lambda m: 24),
+    (_re.compile(r'\byesterday\b'),             lambda m: 48),
+]
+_NL_STEMS = ('ing', 'ted', 'red', 'ed', 'es', 's')
+_NL_LEVEL_WORDS = frozenset({'error','errors','warning','warnings','warn','info','critical','crit','fatal'})
+_NL_LEVEL_PATTERNS = [
+    (_re.compile(r'\b(error|errors|critical|crit|fatal)\b'), 'error'),
+    (_re.compile(r'\b(warning|warnings|warn)\b'), 'warning'),
+    (_re.compile(r'\binfo\b'), 'info'),
+]
+
+def _quick_nl_parse(q: str, known_containers=None) -> dict:
+    ql = q.lower()
+    result = {}
+    for pat, fn in _NL_TIME_PHRASES:
+        m = pat.search(ql)
+        if m:
+            result['since_hours'] = fn(m)
+            break
+    for pat, lvl in _NL_LEVEL_PATTERNS:
+        if pat.search(ql):
+            result['level'] = lvl
+            break
+    container_words = set()
+    if known_containers:
+        short_map = {}
+        for full in known_containers:
+            short = full
+            if short.startswith('docker-'):
+                short = short[7:]
+            short = _re.sub(r'-\d+$', '', short)
+            short_map[short] = full
+        for w in _re.findall(r'\b[a-z][a-z0-9-]{1,}\b', ql):
+            if w in short_map:
+                result['container'] = short_map[w]
+                container_words.add(w)
+                break
+    words = _re.findall(r'\b[a-z][a-z0-9]{2,}\b', ql)
+    for w in words:
+        if w in _NL_STOPWORDS or w in _NL_TIME_WORDS:
+            continue
+        if w in _NL_LEVEL_WORDS:
+            continue
+        if w in container_words:
+            continue
+        for sfx in _NL_STEMS:
+            if w.endswith(sfx) and len(w) - len(sfx) >= 3:
+                w = w[:-len(sfx)]
+                break
+        result['search'] = w
+        break
+    return result
+
 app = FastAPI(title="Fathom", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -74,24 +147,47 @@ async def logs(
 async def search(q: str = "", limit: int = 200):
     if not q.strip():
         return db.get_logs(limit=limit)
-    # try FTS5 first
-    results = db.fts_search(q, limit=limit)
+    # Parse NL signals first — detects time/level/container before FTS5 fires
+    known = db.get_distinct_containers()
+    quick = _quick_nl_parse(q, known)
+    has_nl = any(k in quick for k in ('since_hours', 'level', 'container'))
+    q_since = int(time.time()) - int(quick["since_hours"] * 3600) if "since_hours" in quick else None
+    q_level = quick.get("level")
+    q_container = quick.get("container")
+    q_kw = quick.get("search")
+    if has_nl:
+        # Structured path: FTS5 keyword + DB filters for time/level/container
+        if q_kw:
+            try:
+                results = db.fts_search(q_kw, limit=limit, since=q_since, level=q_level, container=q_container)
+            except Exception:
+                results = []
+            if results:
+                return results
+        return db.get_logs(container=q_container, level=q_level, since=q_since, limit=limit)
+    # Pure keyword — no NL signals detected, use raw FTS5
+    try:
+        results = db.fts_search(q, limit=limit)
+    except Exception:
+        results = []
     if results:
         return results
-    # Navigator fallback
-    filters = nl_to_filter(q)
-    since = None
-    if "since_hours" in filters:
-        since = int(time.time()) - int(filters["since_hours"]) * 3600
-    kw = filters.get("search", "")
-    if kw:
-        results = db.fts_search(kw, limit=limit)
+    # Ollama fallback — only for queries that look NL but quick parse missed
+    loop = asyncio.get_event_loop()
+    filters = await loop.run_in_executor(None, nl_to_filter, q)
+    o_since = int(time.time()) - int(filters["since_hours"]) * 3600 if "since_hours" in filters else None
+    o_kw = filters.get("search", "")
+    if o_kw:
+        try:
+            results = db.fts_search(o_kw, limit=limit, since=o_since)
+        except Exception:
+            results = []
         if results:
             return results
     return db.get_logs(
         container=filters.get("container"),
         level=filters.get("level"),
-        since=since,
+        since=o_since,
         limit=limit
     )
 
@@ -108,22 +204,29 @@ async def projects():
     return db.get_projects()
 
 @app.get("/api/stream")
-async def stream():
-    """Tide — SSE live log stream."""
+async def stream(request: Request):
+    """Tide -- SSE live log stream."""
     q: asyncio.Queue = asyncio.Queue(maxsize=200)
     _subscribers.append(q)
     async def gen():
         try:
             while True:
-                entry = await q.get()
-                yield f"data: {json.dumps(entry)}\n\n"
-        except asyncio.CancelledError:
+                if await request.is_disconnected():
+                    break
+                try:
+                    entry = await asyncio.wait_for(q.get(), timeout=20.0)
+                    yield "data: " + json.dumps(entry) + "\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        except (asyncio.CancelledError, GeneratorExit):
             pass
         finally:
-            _subscribers.remove(q)
+            try:
+                _subscribers.remove(q)
+            except ValueError:
+                pass
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
 # --- Mute (filters) ---
 @app.get("/api/filters")
 async def get_filters():
