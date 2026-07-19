@@ -110,12 +110,13 @@ def insert_log(timestamp, container, image, project, level, line, parsed_msg, st
         c.execute("INSERT INTO logs_fts(rowid,line,container,parsed_msg) VALUES(?,?,?,?)",
                   (rowid, line, container, parsed_msg or ""))
 
-def get_logs(container=None, level=None, project=None, since=None, limit=300, offset=0):
+def get_logs(container=None, level=None, project=None, since=None, until=None, limit=300, offset=0):
     clauses, params = [], []
     if container: clauses.append("container=?"); params.append(container)
     if level:     clauses.append("level=?");     params.append(level)
     if project:   clauses.append("project=?");   params.append(project)
     if since:     clauses.append("timestamp>=?"); params.append(since)
+    if until:     clauses.append("timestamp<=?"); params.append(until)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     with conn() as c:
         rows = c.execute(
@@ -129,7 +130,7 @@ def get_distinct_containers():
         rows = c.execute("SELECT DISTINCT container FROM logs").fetchall()
     return [r[0] for r in rows if r[0]]
 
-def fts_search(q, limit=200, since=None, level=None, container=None):
+def fts_search(q, limit=200, since=None, until=None, level=None, container=None):
     # Enable prefix matching for simple queries (no FTS5 operators present)
     fts_q = q
     if q and not any(ch in q for ch in ('"', '*', ':', '(')) and q.upper() not in ('AND', 'OR', 'NOT'):
@@ -142,6 +143,9 @@ def fts_search(q, limit=200, since=None, level=None, container=None):
         if since:
             sql += " AND l.timestamp >= ?"
             params.append(since)
+        if until:
+            sql += " AND l.timestamp <= ?"
+            params.append(until)
         if level:
             sql += " AND l.level = ?"
             params.append(level)

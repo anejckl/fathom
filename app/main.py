@@ -62,17 +62,47 @@ _NL_TIME_WORDS = frozenset({
     'today', 'tonight', 'yesterday', 'hour', 'hours', 'night',
     'week', 'day', 'days', 'last', 'ago', 'recent', 'now',
 })
+import datetime as _dt
 _NL_TIME_PHRASES = [
-    (_re.compile(r'last\s+(\d+)\s+minutes?'), lambda m: int(m.group(1)) / 60),
-    (_re.compile(r'last\s+minute'),              lambda m: 1 / 60),
-    (_re.compile(r'last\s+(\d+)\s+hours?'),   lambda m: int(m.group(1))),
-    (_re.compile(r'last\s+hour'),                lambda m: 1),
-    (_re.compile(r'last\s+night'),               lambda m: 16),
-    (_re.compile(r'last\s+week'),                lambda m: 168),
-    (_re.compile(r'last\s+(\d+)\s+days?'),    lambda m: int(m.group(1)) * 24),
-    (_re.compile(r'\btoday\b'),                 lambda m: 24),
-    (_re.compile(r'\byesterday\b'),             lambda m: 48),
+    (_re.compile(r'last\s+(\d+)\s+minutes?'), 'last_N_min'),
+    (_re.compile(r'last\s+minute'),              'last_1_min'),
+    (_re.compile(r'last\s+(\d+)\s+hours?'),   'last_N_hr'),
+    (_re.compile(r'last\s+hour'),                'last_1_hr'),
+    (_re.compile(r'last\s+night'),               'last_night'),
+    (_re.compile(r'last\s+week'),                'last_week'),
+    (_re.compile(r'last\s+(\d+)\s+days?'),    'last_N_days'),
+    (_re.compile(r'\btoday\b'),                'today'),
+    (_re.compile(r'\byesterday\b'),            'yesterday'),
 ]
+
+def _nl_time_window(key, match=None):
+    """Return (since_ts, until_ts). until_ts=None means open-ended (up to now)."""
+    now_ts = int(time.time())
+    now_dt = _dt.datetime.now()
+    midnight = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    if key == 'last_N_min':
+        return now_ts - int(match.group(1)) * 60, None
+    if key == 'last_1_min':
+        return now_ts - 60, None
+    if key == 'last_N_hr':
+        return now_ts - int(match.group(1)) * 3600, None
+    if key == 'last_1_hr':
+        return now_ts - 3600, None
+    if key == 'last_night':
+        # yesterday 20:00 -> today 06:00
+        since = midnight - _dt.timedelta(hours=4)
+        until = midnight + _dt.timedelta(hours=6)
+        return int(since.timestamp()), int(until.timestamp()) if now_dt.hour >= 6 else None
+    if key == 'last_week':
+        return now_ts - 7 * 86400, None
+    if key == 'last_N_days':
+        return now_ts - int(match.group(1)) * 86400, None
+    if key == 'today':
+        return int(midnight.timestamp()), None
+    if key == 'yesterday':
+        yd = midnight - _dt.timedelta(days=1)
+        return int(yd.timestamp()), int(midnight.timestamp())
+    return now_ts - 3600, None
 _NL_STEMS = ('ing', 'ted', 'red', 'ed', 'es', 's')
 _NL_LEVEL_WORDS = frozenset({'error','errors','warning','warnings','warn','info','critical','crit','fatal'})
 _NL_LEVEL_PATTERNS = [
@@ -84,10 +114,13 @@ _NL_LEVEL_PATTERNS = [
 def _quick_nl_parse(q: str, known_containers=None) -> dict:
     ql = q.lower()
     result = {}
-    for pat, fn in _NL_TIME_PHRASES:
+    for pat, key in _NL_TIME_PHRASES:
         m = pat.search(ql)
         if m:
-            result['since_hours'] = fn(m)
+            since_ts, until_ts = _nl_time_window(key, m)
+            result['since_ts'] = since_ts
+            if until_ts is not None:
+                result['until_ts'] = until_ts
             break
     for pat, lvl in _NL_LEVEL_PATTERNS:
         if pat.search(ql):
@@ -150,8 +183,9 @@ async def search(q: str = "", limit: int = 200):
     # Parse NL signals first — detects time/level/container before FTS5 fires
     known = db.get_distinct_containers()
     quick = _quick_nl_parse(q, known)
-    has_nl = any(k in quick for k in ('since_hours', 'level', 'container'))
-    q_since = int(time.time()) - int(quick["since_hours"] * 3600) if "since_hours" in quick else None
+    has_nl = any(k in quick for k in ('since_ts', 'level', 'container'))
+    q_since = quick.get('since_ts')
+    q_until = quick.get('until_ts')
     q_level = quick.get("level")
     q_container = quick.get("container")
     q_kw = quick.get("search")
@@ -159,12 +193,12 @@ async def search(q: str = "", limit: int = 200):
         # Structured path: FTS5 keyword + DB filters for time/level/container
         if q_kw:
             try:
-                results = db.fts_search(q_kw, limit=limit, since=q_since, level=q_level, container=q_container)
+                results = db.fts_search(q_kw, limit=limit, since=q_since, until=q_until, level=q_level, container=q_container)
             except Exception:
                 results = []
             if results:
                 return results
-        return db.get_logs(container=q_container, level=q_level, since=q_since, limit=limit)
+        return db.get_logs(container=q_container, level=q_level, since=q_since, until=q_until, limit=limit)
     # Pure keyword — no NL signals detected, use raw FTS5
     try:
         results = db.fts_search(q, limit=limit)
