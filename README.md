@@ -16,7 +16,7 @@ Fathom is a persistent Docker log aggregator built for homelabs. It fills the ga
 - **Zero config** — auto-discovers every container via Docker socket, no labels or env vars required
 - **Persistent** — logs survive container restarts and are searchable days later
 - **Live stream** — new lines appear instantly via SSE, no polling
-- **NL search** — ask in plain English: `errors last night`, `sonarr warnings`, `critical last hour`
+- **NL search** — built-in parser handles time/level/container queries; Ollama optional for free-form English
 - **FTS5 + stemming** — `fail` finds `failed`, `failure`, `failing`; prefix matching included
 - **Noise filters** — suppress health check spam at ingest time, before it hits the DB
 - **Webhook alerts** — get notified on ntfy, Discord, or Slack when errors spike
@@ -57,7 +57,7 @@ Open `http://localhost:8000`.
 
 ## NL search examples
 
-Fathom's built-in parser handles common queries instantly — no Ollama required:
+Fathom's built-in parser handles common queries instantly — no Ollama required. These all work out of the box:
 
 | Query | What it does |
 |-------|-------------|
