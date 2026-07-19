@@ -2,7 +2,7 @@
 
 **Fathom what's happening in your stack.**
 
-[![Docker Image](https://ghcr.io-badge-placeholder)](https://github.com/anejckl/fathom/pkgs/container/fathom)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fanejckl%2Ffathom-blue?logo=docker)](https://github.com/anejckl/fathom/pkgs/container/fathom)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Fathom is a persistent Docker log aggregator built for homelabs. It fills the gap between Dozzle (real-time only, no history) and Loki (full stack, heavy). One container. Zero config. Search logs from last night in plain English.
