@@ -2,6 +2,7 @@
 
 **Fathom what's happening in your stack.**
 
+[![Tests](https://github.com/anejckl/fathom/actions/workflows/test.yml/badge.svg)](https://github.com/anejckl/fathom/actions/workflows/test.yml)
 [![ghcr.io](https://img.shields.io/badge/ghcr.io-anejckl%2Ffathom-blue?logo=docker&logoColor=white)](https://github.com/anejckl/fathom/pkgs/container/fathom)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -38,11 +39,11 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - FATHOM_USER=admin
+      - FATHOM_PASSWORD=changeme
+      - FATHOM_SECRET=change-this-to-a-random-string
       - RETENTION_DAYS=30
       - TZ=Europe/London
-      # Optional: enable NL search via local Ollama
-      # - OLLAMA_URL=http://ollama:11434
-      # - OLLAMA_MODEL=llama3.2:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - fathom-data:/data
@@ -51,23 +52,23 @@ volumes:
   fathom-data:
 ```
 
-Open `http://localhost:8000`.
+Open `http://localhost:8000` and sign in. Leave `FATHOM_PASSWORD` unset to disable auth (local dev).
 
 ---
 
 ## NL search examples
 
-Fathom's built-in parser handles common queries instantly — no Ollama required. These all work out of the box:
+Fathom's built-in parser handles common queries instantly — no Ollama required:
 
 | Query | What it does |
 |-------|-------------|
-| `errors today` | All error-level logs in the last 24h |
+| `errors today` | All error-level logs since midnight |
 | `sonarr warnings` | Warnings from docker-sonarr-1 only |
-| `critical last night` | Errors from the last 16h |
+| `critical last night` | Errors from yesterday 20:00 – today 06:00 |
 | `radarr last hour` | All radarr logs in the last 60 minutes |
-| `warn yesterday` | Warnings from the last 48h |
 | `last 5 minutes` | Everything in the last 5 minutes |
-| `connection refused` | FTS keyword search with stemming |
+| `45 minutes ago` | Logs since 45 minutes ago |
+| `connection refused` | FTS5 keyword search with stemming |
 
 Container shortnames are resolved automatically — type `sonarr` and Fathom maps it to `docker-sonarr-1`.
 
@@ -77,16 +78,13 @@ With `OLLAMA_URL` set, more complex free-form queries fall through to your local
 
 ---
 
-## Without Ollama
-
-Remove `OLLAMA_URL` from your compose file. Everything works — NL search falls back to the built-in parser which handles time filters, level filters, and container shortcuts without any AI.
-
----
-
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `FATHOM_USER` | `admin` | Login username |
+| `FATHOM_PASSWORD` | — | Login password. Leave unset to disable auth |
+| `FATHOM_SECRET` | random | Secret key for signing session cookies |
 | `RETENTION_DAYS` | `30` | Delete logs older than N days |
 | `RATE_LIMIT` | `20` | Max lines per container per minute stored |
 | `OLLAMA_URL` | — | Ollama base URL, e.g. `http://ollama:11434` |
@@ -123,6 +121,7 @@ Each rule: container + error pattern + threshold (N errors in M minutes) + webho
 | Persistent logs | ✓ | — | ✓ |
 | Zero config | ✓ | ✓ | — |
 | NL search | ✓ | — | — |
+| Authentication | ✓ | ✓ | ✓ |
 | Single container | ✓ | ✓ | — |
 | RAM usage | ~50MB | ~20MB | ~500MB+ |
 | Setup | copy-paste compose | copy-paste compose | 4+ services |
