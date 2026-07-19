@@ -84,7 +84,7 @@ With `OLLAMA_URL` set, more complex free-form queries fall through to your local
 |----------|---------|-------------|
 | `FATHOM_USER` | `admin` | Login username |
 | `FATHOM_PASSWORD` | — | Login password. Leave unset to disable auth |
-| `FATHOM_SECRET` | random | Secret key for signing session cookies |
+| `FATHOM_SECRET` | auto | Secret key for signing session cookies. Auto-generated and persisted in the DB if not set — sessions survive restarts. Set explicitly to share sessions across multiple instances or to rotate cookies on demand. |
 | `RETENTION_DAYS` | `30` | Delete logs older than N days |
 | `RATE_LIMIT` | `20` | Max lines per container per minute stored |
 | `OLLAMA_URL` | — | Ollama base URL, e.g. `http://ollama:11434` |

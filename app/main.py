@@ -10,7 +10,7 @@ from collector import start_collector
 from llm import nl_to_filter
 from alerter import run_alerter
 from database import conn
-from auth import require_auth, check_credentials, make_session_cookie, AUTH_DISABLED
+from auth import require_auth, check_credentials, make_session_cookie, AUTH_DISABLED, init_secret
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(),
                     format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -37,6 +37,7 @@ db.insert_log = _insert_and_broadcast
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    init_secret(conn)
     collector_task = asyncio.create_task(start_collector())
     alerter_task   = asyncio.create_task(run_alerter(conn))
     sweep_task     = asyncio.create_task(_sweep_loop())

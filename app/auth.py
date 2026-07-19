@@ -4,11 +4,27 @@ from fastapi import Cookie, HTTPException, Request
 
 _USER     = os.getenv("FATHOM_USER", "admin")
 _PASSWORD = os.getenv("FATHOM_PASSWORD", "")
-_SECRET   = os.getenv("FATHOM_SECRET") or secrets.token_hex(32)
-_SIGNER   = URLSafeTimedSerializer(_SECRET, salt="fathom-session")
 _MAX_AGE  = 7 * 86400
 
 AUTH_DISABLED = not _PASSWORD
+
+_SIGNER: URLSafeTimedSerializer | None = None
+
+def init_secret(conn_fn) -> None:
+    """Called from lifespan after db.init_db(). Loads or generates a persistent secret."""
+    global _SIGNER
+    env_secret = os.getenv("FATHOM_SECRET")
+    if env_secret:
+        _SIGNER = URLSafeTimedSerializer(env_secret, salt="fathom-session")
+        return
+    with conn_fn() as c:
+        row = c.execute("SELECT value FROM meta WHERE key='session_secret'").fetchone()
+        if row:
+            secret = row[0]
+        else:
+            secret = secrets.token_hex(32)
+            c.execute("INSERT INTO meta(key, value) VALUES('session_secret', ?)", (secret,))
+    _SIGNER = URLSafeTimedSerializer(secret, salt="fathom-session")
 
 def make_session_cookie() -> str:
     return _SIGNER.dumps({"u": _USER, "t": int(time.time())})
