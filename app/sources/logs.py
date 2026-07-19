@@ -7,8 +7,9 @@ log = logging.getLogger("fathom.deckhand")
 ERROR_RE  = re.compile(r'\b(error|exception|critical|fatal|panic)\b', re.I)
 WARN_RE   = re.compile(r'\b(warn|warning|deprecated)\b', re.I)
 
+import os as _os
 _rate_buckets: dict[str, list] = defaultdict(list)
-RATE_LIMIT = 20  # lines per container per minute
+RATE_LIMIT = int(_os.getenv("RATE_LIMIT", "20"))
 
 def _detect_level(line: str) -> str:
     if ERROR_RE.search(line): return "error"
@@ -42,19 +43,29 @@ def _rate_ok(container: str) -> bool:
     _rate_buckets[container].append(now)
     return True
 
+def _load_filters():
+    """Load filters from DB and pre-compile regex patterns."""
+    filters = get_filters()
+    for f in filters:
+        if f["is_regex"]:
+            try:
+                f["_re"] = re.compile(f["pattern"], re.I)
+            except re.error:
+                f["_re"] = None
+        else:
+            f["_re"] = None
+    return filters
+
 def _is_muted(line: str, container: str, filters: list) -> bool:
     for f in filters:
         if f["container"] and f["container"] != container:
             continue
-        pattern = f["pattern"]
         if f["is_regex"]:
-            try:
-                if re.search(pattern, line, re.I):
-                    return True
-            except re.error:
-                pass
+            compiled = f.get("_re")
+            if compiled and compiled.search(line):
+                return True
         else:
-            if pattern.lower() in line.lower():
+            if f["pattern"].lower() in line.lower():
                 return True
     return False
 
@@ -71,13 +82,13 @@ async def tail_container(container_name: str, image: str, project: str, insert_f
         log.warning("Deckhand lost %s: %s", container_name, e)
 
 def _consume(log_gen, container_name, image, project, insert_fn, stop_event):
-    filters = get_filters()
+    filters = _load_filters()
     filters_ts = time.time()
     for raw in log_gen:
         if stop_event.is_set():
             break
         if time.time() - filters_ts > 30:
-            filters = get_filters()
+            filters = _load_filters()
             filters_ts = time.time()
         try:
             raw_str = raw.decode("utf-8", errors="replace").strip()

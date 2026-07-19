@@ -27,7 +27,7 @@ def _check_rules(db_conn_fn):
         with db_conn_fn() as c:
             rows = c.execute(
                 """SELECT line FROM logs
-                   WHERE container=? AND timestamp>=? AND level='error'""",
+                   WHERE container=? AND timestamp>=?""",
                 (rule["container"], window_start)
             ).fetchall()
         matches = [r["line"] for r in rows if _matches(r["line"], rule["pattern"])]

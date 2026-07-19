@@ -64,6 +64,8 @@ _NL_TIME_WORDS = frozenset({
 })
 import datetime as _dt
 _NL_TIME_PHRASES = [
+    (_re.compile(r'(\d+)\s+minutes?\s+ago'),  'N_min_ago'),
+    (_re.compile(r'(\d+)\s+hours?\s+ago'),    'N_hr_ago'),
     (_re.compile(r'last\s+(\d+)\s+minutes?'), 'last_N_min'),
     (_re.compile(r'last\s+minute'),              'last_1_min'),
     (_re.compile(r'last\s+(\d+)\s+hours?'),   'last_N_hr'),
@@ -71,8 +73,10 @@ _NL_TIME_PHRASES = [
     (_re.compile(r'last\s+night'),               'last_night'),
     (_re.compile(r'last\s+week'),                'last_week'),
     (_re.compile(r'last\s+(\d+)\s+days?'),    'last_N_days'),
+    (_re.compile(r'\btonight\b'),              'tonight'),
     (_re.compile(r'\btoday\b'),                'today'),
     (_re.compile(r'\byesterday\b'),            'yesterday'),
+    (_re.compile(r'\brecent\b'),               'recent'),
 ]
 
 def _nl_time_window(key, match=None):
@@ -102,6 +106,16 @@ def _nl_time_window(key, match=None):
     if key == 'yesterday':
         yd = midnight - _dt.timedelta(days=1)
         return int(yd.timestamp()), int(midnight.timestamp())
+    if key == 'tonight':
+        tonight_start = midnight + _dt.timedelta(hours=18)
+        tonight_end   = midnight + _dt.timedelta(days=1)
+        return int(tonight_start.timestamp()), int(tonight_end.timestamp())
+    if key == 'N_min_ago':
+        return now_ts - int(match.group(1)) * 60, None
+    if key == 'N_hr_ago':
+        return now_ts - int(match.group(1)) * 3600, None
+    if key == 'recent':
+        return now_ts - 1800, None  # last 30 minutes
     return now_ts - 3600, None
 _NL_STEMS = ('ing', 'ted', 'red', 'ed', 'es', 's')
 _NL_LEVEL_WORDS = frozenset({'error','errors','warning','warnings','warn','info','critical','crit','fatal'})
@@ -171,10 +185,10 @@ async def health():
 @app.get("/api/logs")
 async def logs(
     container: str = None, level: str = None, project: str = None,
-    since: int = None, limit: int = 300, offset: int = 0
+    since: int = None, until: int = None, limit: int = 300, offset: int = 0
 ):
     return db.get_logs(container=container, level=level, project=project,
-                       since=since, limit=limit, offset=offset)
+                       since=since, until=until, limit=limit, offset=offset)
 
 @app.get("/api/search")
 async def search(q: str = "", limit: int = 200):
