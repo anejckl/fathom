@@ -48,8 +48,10 @@ def client(seeded_db, monkeypatch):
         await asyncio.sleep(9999)
 
     import main as main_module
+    import auth as auth_module
     monkeypatch.setattr(main_module, "start_collector", _noop_collector)
     monkeypatch.setattr(main_module, "run_alerter", _noop_alerter)
+    monkeypatch.setattr(auth_module, "AUTH_DISABLED", True)
 
     from fastapi.testclient import TestClient
     from main import app

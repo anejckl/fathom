@@ -1,7 +1,7 @@
 import asyncio, json, logging, os, time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Query
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi import FastAPI, Request, Query, Depends
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -10,6 +10,7 @@ from collector import start_collector
 from llm import nl_to_filter
 from alerter import run_alerter
 from database import conn
+from auth import require_auth, check_credentials, make_session_cookie, AUTH_DISABLED
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(),
                     format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -170,13 +171,69 @@ def _quick_nl_parse(q: str, known_containers=None) -> dict:
         break
     return result
 
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head><title>Fathom — Login</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#11111b;color:#cdd6f4}
+form{background:#1e1e2e;border:1px solid #313244;padding:2rem 2rem 1.75rem;border-radius:.6rem;min-width:300px;display:flex;flex-direction:column;gap:.9rem}
+h2{font-size:1rem;font-weight:600;color:#cba6f7;letter-spacing:-.01em}
+input{background:#181825;border:1px solid #45475a;color:#cdd6f4;padding:.55rem .8rem;border-radius:.35rem;font-size:.9rem;outline:none;width:100%}
+input:focus{border-color:#cba6f7}
+input::placeholder{color:#585b70}
+button{background:#cba6f7;color:#11111b;border:none;padding:.6rem;border-radius:.35rem;font-size:.9rem;font-weight:600;cursor:pointer;margin-top:.1rem}
+button:hover{opacity:.9}
+.err{color:#f38ba8;font-size:.8rem}
+</style></head>
+<body>
+<form method="post" action="/auth/login">
+  <h2>Fathom</h2>
+  <!--ERR-->
+  <input name="username" placeholder="Username" required autofocus autocomplete="username">
+  <input name="password" type="password" placeholder="Password" required autocomplete="current-password">
+  <button type="submit">Sign in</button>
+</form>
+</body></html>"""
+
 app = FastAPI(title="Fathom", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+# --- Auth routes (no auth dependency) ---
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    return HTMLResponse(LOGIN_HTML)
+
+@app.post("/auth/login")
+async def do_login(request: Request):
+    from urllib.parse import parse_qs
+    body = await request.body()
+    params = parse_qs(body.decode())
+    username = params.get("username", [""])[0]
+    password = params.get("password", [""])[0]
+    if not check_credentials(username, password):
+        return HTMLResponse(
+            LOGIN_HTML.replace("<!--ERR-->", '<p class="err">Invalid credentials</p>'),
+            status_code=401
+        )
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie("fathom_session", make_session_cookie(),
+                    max_age=7 * 86400, httponly=True, samesite="lax")
+    return resp
+
+@app.post("/auth/logout")
+async def do_logout(_=Depends(require_auth)):
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie("fathom_session")
+    return resp
+
+# --- App routes ---
+
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def index(request: Request, _=Depends(require_auth)):
+    return templates.TemplateResponse("index.html", {"request": request, "auth_disabled": AUTH_DISABLED})
 
 @app.get("/health")
 async def health():
@@ -185,13 +242,14 @@ async def health():
 @app.get("/api/logs")
 async def logs(
     container: str = None, level: str = None, project: str = None,
-    since: int = None, until: int = None, limit: int = 300, offset: int = 0
+    since: int = None, until: int = None, limit: int = 300, offset: int = 0,
+    _=Depends(require_auth)
 ):
     return db.get_logs(container=container, level=level, project=project,
                        since=since, until=until, limit=limit, offset=offset)
 
 @app.get("/api/search")
-async def search(q: str = "", limit: int = 200):
+async def search(q: str = "", limit: int = 200, _=Depends(require_auth)):
     if not q.strip():
         return db.get_logs(limit=limit)
     # Parse NL signals first — detects time/level/container before FTS5 fires
@@ -240,20 +298,20 @@ async def search(q: str = "", limit: int = 200):
     )
 
 @app.get("/api/context/{log_id}")
-async def context(log_id: int, container: str = Query(...), window: int = 20):
+async def context(log_id: int, container: str = Query(...), window: int = 20, _=Depends(require_auth)):
     return db.get_context(log_id, container, window)
 
 @app.get("/api/counts")
-async def counts():
+async def counts(_=Depends(require_auth)):
     return db.get_counts()
 
 @app.get("/api/projects")
-async def projects():
+async def projects(_=Depends(require_auth)):
     return db.get_projects()
 
 @app.get("/api/stream")
-async def stream(request: Request):
-    """Tide -- SSE live log stream."""
+async def stream(request: Request, _=Depends(require_auth)):
+    """SSE live log stream."""
     q: asyncio.Queue = asyncio.Queue(maxsize=200)
     _subscribers.append(q)
     async def gen():
@@ -275,29 +333,32 @@ async def stream(request: Request):
                 pass
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
 # --- Mute (filters) ---
+
 @app.get("/api/filters")
-async def get_filters():
+async def get_filters(_=Depends(require_auth)):
     return db.get_filters()
 
 @app.post("/api/filters")
-async def add_filter(req: Request):
+async def add_filter(req: Request, _=Depends(require_auth)):
     body = await req.json()
     db.add_filter(body.get("container"), body["pattern"], body.get("is_regex", False))
     return {"ok": True}
 
 @app.delete("/api/filters/{filter_id}")
-async def delete_filter(filter_id: int):
+async def delete_filter(filter_id: int, _=Depends(require_auth)):
     db.delete_filter(filter_id)
     return {"ok": True}
 
 # --- Flares (alert rules) ---
+
 @app.get("/api/alerts")
-async def get_alerts():
+async def get_alerts(_=Depends(require_auth)):
     return db.get_alert_rules()
 
 @app.post("/api/alerts")
-async def add_alert(req: Request):
+async def add_alert(req: Request, _=Depends(require_auth)):
     body = await req.json()
     db.add_alert_rule(
         body["container"], body["pattern"],
@@ -307,12 +368,12 @@ async def add_alert(req: Request):
     return {"ok": True}
 
 @app.delete("/api/alerts/{rule_id}")
-async def delete_alert(rule_id: int):
+async def delete_alert(rule_id: int, _=Depends(require_auth)):
     db.delete_alert_rule(rule_id)
     return {"ok": True}
 
 @app.get("/api/containers/status")
-async def containers_status():
+async def containers_status(_=Depends(require_auth)):
     import docker as docker_sdk
     try:
         client = docker_sdk.DockerClient(base_url="unix://var/run/docker.sock")

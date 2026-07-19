@@ -142,6 +142,7 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative
     <div class="header-actions">
       <button class="action-link" onclick="openPanel('mute-panel')">Mute</button>
       <button class="action-link" onclick="openPanel('flares-panel')">Flares</button>
+      <form method="post" action="/auth/logout" style="display:inline"><button class="action-link">Logout</button></form>
       <div class="live-dot" id="live-dot" title="click to pause / resume" onclick="togglePause()"></div>
     </div>
   </div>

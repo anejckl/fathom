@@ -6,6 +6,10 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Authentication — set FATHOM_PASSWORD to enable login (leave empty to disable)
+      - FATHOM_USER=admin
+      - FATHOM_PASSWORD=changeme
+      - FATHOM_SECRET=change-this-to-a-random-secret-key
       # Optional: enables free-form NL search (e.g. "what crashed today")
       # Without this, the built-in parser handles time/level/container queries just fine.
       # - OLLAMA_URL=http://ollama:11434
